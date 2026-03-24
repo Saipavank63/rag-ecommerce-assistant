@@ -9,18 +9,32 @@ from llama_index.embeddings.openai import OpenAIEmbedding
 from llama_index.vector_stores.weaviate import WeaviateVectorStore
 
 from src.config import settings
+from src.rag.reranker import CrossEncoderReranker
 
 logger = logging.getLogger(__name__)
 
 
 class HybridRetriever:
     """Retrieves product information from Weaviate using hybrid search
-    (dense vector + BM25 keyword matching).
+    (dense vector + BM25 keyword matching), with optional cross-encoder
+    reranking for improved precision.
     """
 
     def __init__(self):
         self._client: Optional[weaviate.WeaviateClient] = None
         self._index: Optional[VectorStoreIndex] = None
+        self._reranker: Optional[CrossEncoderReranker] = None
+
+        if settings.reranker_enabled:
+            self._reranker = CrossEncoderReranker(
+                model_name=settings.reranker_model,
+                top_n=settings.reranker_top_n,
+            )
+            logger.info(
+                "Cross-encoder reranking enabled (model=%s, top_n=%d)",
+                settings.reranker_model,
+                settings.reranker_top_n,
+            )
 
     def _get_client(self) -> weaviate.WeaviateClient:
         if self._client is None or not self._client.is_connected():
@@ -52,21 +66,33 @@ class HybridRetriever:
         return self._index
 
     def retrieve(self, query: str, top_k: Optional[int] = None) -> list[NodeWithScore]:
-        """Run hybrid retrieval combining vector similarity and keyword search."""
-        k = top_k or settings.similarity_top_k
-        index = self._get_index()
+        """Run hybrid retrieval combining vector similarity and keyword search.
 
+        When reranking is enabled the first stage over-fetches candidates
+        (``top_k * 3``) so the cross-encoder has a richer pool to score,
+        then the reranker trims back to the requested ``top_k``.
+        """
+        k = top_k or settings.similarity_top_k
+
+        # Over-fetch when reranking so the cross-encoder sees more candidates.
+        fetch_k = k * 3 if self._reranker is not None else k
+
+        index = self._get_index()
         retriever = index.as_retriever(
-            similarity_top_k=k,
+            similarity_top_k=fetch_k,
             vector_store_query_mode="hybrid",
             alpha=settings.hybrid_alpha,
         )
 
         nodes = retriever.retrieve(query)
         logger.info(
-            "Retrieved %d nodes for query: '%s' (top_k=%d, alpha=%.2f)",
-            len(nodes), query[:80], k, settings.hybrid_alpha,
+            "Retrieved %d nodes for query: '%s' (fetch_k=%d, alpha=%.2f)",
+            len(nodes), query[:80], fetch_k, settings.hybrid_alpha,
         )
+
+        if self._reranker is not None:
+            nodes = self._reranker.rerank(query, nodes, top_n=k)
+
         return nodes
 
     def retrieve_by_category(self, query: str, category: str, top_k: int = 5) -> list[NodeWithScore]:

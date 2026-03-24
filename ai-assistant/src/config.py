@@ -23,6 +23,9 @@ class Settings(BaseSettings):
     # RAG
     similarity_top_k: int = 5
     hybrid_alpha: float = 0.5  # 0 = pure BM25, 1 = pure vector
+    reranker_enabled: bool = False
+    reranker_model: str = "cross-encoder/ms-marco-MiniLM-L-6-v2"
+    reranker_top_n: int = 3
 
     model_config = {"env_prefix": "", "case_sensitive": False}
 
