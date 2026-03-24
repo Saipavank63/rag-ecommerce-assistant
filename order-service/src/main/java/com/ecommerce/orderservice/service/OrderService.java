@@ -2,6 +2,10 @@ package com.ecommerce.orderservice.service;
 
 import com.ecommerce.orderservice.dto.OrderRequest;
 import com.ecommerce.orderservice.dto.OrderResponse;
+import com.ecommerce.orderservice.exception.InsufficientStockException;
+import com.ecommerce.orderservice.exception.InvalidStatusTransitionException;
+import com.ecommerce.orderservice.exception.OrderNotFoundException;
+import com.ecommerce.orderservice.exception.ProductNotFoundException;
 import com.ecommerce.orderservice.model.Order;
 import com.ecommerce.orderservice.model.OrderItem;
 import com.ecommerce.orderservice.model.OrderStatus;
@@ -40,14 +44,11 @@ public class OrderService {
 
         for (OrderRequest.ItemRequest itemReq : request.getItems()) {
             Product product = productRepository.findById(itemReq.getProductId())
-                    .orElseThrow(() -> new IllegalArgumentException(
-                            "Product not found: " + itemReq.getProductId()));
+                    .orElseThrow(() -> new ProductNotFoundException(itemReq.getProductId()));
 
             if (product.getStockQuantity() < itemReq.getQuantity()) {
-                throw new IllegalStateException(
-                        "Insufficient stock for product '" + product.getName() +
-                        "': requested " + itemReq.getQuantity() +
-                        ", available " + product.getStockQuantity());
+                throw new InsufficientStockException(
+                        product.getName(), itemReq.getQuantity(), product.getStockQuantity());
             }
 
             product.setStockQuantity(product.getStockQuantity() - itemReq.getQuantity());
@@ -73,7 +74,7 @@ public class OrderService {
     public OrderResponse getOrder(Long id) {
         Order order = orderRepository.findByIdWithItems(id);
         if (order == null) {
-            throw new IllegalArgumentException("Order not found: " + id);
+            throw new OrderNotFoundException(id);
         }
         return OrderResponse.from(order);
     }
@@ -96,7 +97,7 @@ public class OrderService {
     public OrderResponse updateOrderStatus(Long id, OrderStatus newStatus) {
         Order order = orderRepository.findByIdWithItems(id);
         if (order == null) {
-            throw new IllegalArgumentException("Order not found: " + id);
+            throw new OrderNotFoundException(id);
         }
 
         OrderStatus currentStatus = order.getStatus();
@@ -126,8 +127,7 @@ public class OrderService {
         };
 
         if (!valid) {
-            throw new IllegalStateException(
-                    "Cannot transition from " + current + " to " + next);
+            throw new InvalidStatusTransitionException(current, next);
         }
     }
 

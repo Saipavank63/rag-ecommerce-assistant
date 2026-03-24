@@ -2,6 +2,9 @@ package com.ecommerce.orderservice.service;
 
 import com.ecommerce.orderservice.dto.OrderRequest;
 import com.ecommerce.orderservice.dto.OrderResponse;
+import com.ecommerce.orderservice.exception.InsufficientStockException;
+import com.ecommerce.orderservice.exception.InvalidStatusTransitionException;
+import com.ecommerce.orderservice.exception.ProductNotFoundException;
 import com.ecommerce.orderservice.model.Order;
 import com.ecommerce.orderservice.model.OrderItem;
 import com.ecommerce.orderservice.model.OrderStatus;
@@ -97,7 +100,7 @@ class OrderServiceTest {
 
         when(productRepository.findById(1L)).thenReturn(Optional.of(testProduct));
 
-        assertThrows(IllegalStateException.class, () -> orderService.createOrder(request));
+        assertThrows(InsufficientStockException.class, () -> orderService.createOrder(request));
         verify(kafkaProducer, never()).publishOrderEvent(any(), anyString());
     }
 
@@ -114,7 +117,7 @@ class OrderServiceTest {
 
         when(productRepository.findById(999L)).thenReturn(Optional.empty());
 
-        assertThrows(IllegalArgumentException.class, () -> orderService.createOrder(request));
+        assertThrows(ProductNotFoundException.class, () -> orderService.createOrder(request));
     }
 
     @Test
@@ -145,7 +148,7 @@ class OrderServiceTest {
 
         when(orderRepository.findByIdWithItems(1L)).thenReturn(order);
 
-        assertThrows(IllegalStateException.class,
+        assertThrows(InvalidStatusTransitionException.class,
                 () -> orderService.updateOrderStatus(1L, OrderStatus.PROCESSING));
     }
 
